@@ -32,8 +32,8 @@ if INDEX_NAME not in existing_indexes:
         dimension=VECTOR_DIM,
         metric="cosine",
         spec=ServerlessSpec(
-            cloud="gcp",
-            region="us-east1-gcp"
+            cloud="aws",
+            region="us-east-1"
         )
     )
 else:

@@ -5,8 +5,8 @@ Loads credentials and settings from environment variables (.env file).
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env.local file
+load_dotenv(".env.local")
 
 # Neo4j Configuration
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
