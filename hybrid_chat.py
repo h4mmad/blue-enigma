@@ -68,8 +68,10 @@ def fetch_graph_context(node_ids: List[str], neighborhood_depth=1):
                 "MATCH (n:Entity {id:$nid})-[r]-(m:Entity) "
                 "RETURN type(r) AS rel, labels(m) AS labels, m.id AS id, "
                 "m.name AS name, m.type AS type, m.description AS description "
+                "ORDER BY m.id "  # Added ORDER BY for deterministic results
                 "LIMIT 10"
             )
+            # added Order by for more deterministic responses
             recs = session.run(q, nid=nid)
             for r in recs:
                 facts.append({
@@ -122,7 +124,8 @@ def call_chat(prompt_messages):
         model=CHAT_MODEL,
         messages=prompt_messages,
         max_tokens=600,
-        temperature=0.2
+        temperature=0.0,  # Changed temperature to 0 for more deterministic response
+        seed=42  # Added seed for maximum determinism
     )
     return resp.choices[0].message.content
 
