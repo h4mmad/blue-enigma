@@ -274,3 +274,45 @@ For a travel company, this level of determinism ensures:
 5. Quality assurance can verify recommendation quality
 
 ---
+
+## 7. Graph Visualization Fix
+
+**Problem:** `visualize_graph.py` script failed with `TypeError` when attempting to generate graph visualization.
+
+**Error:**
+```
+TypeError: Network.show() got an unexpected keyword argument 'notebook'
+```
+
+**Root Cause:**
+The pyvis library API changed in newer versions. The `show()` method no longer accepts the `notebook` parameter - it's only specified during `Network()` initialization.
+
+**Original Code** in [visualize_graph.py:33](visualize_graph.py#L33):
+```python
+net.show(output_html, notebook=False)  # notebook parameter not supported here
+```
+
+**Solution:**
+```python
+net.show(output_html)  # Removed notebook parameter
+```
+
+**Additional Fix:**
+Added proper driver cleanup to prevent resource warning:
+```python
+driver.close()  # Properly close the driver to avoid resource warnings
+```
+
+**Result:**
+- Successfully generates `neo4j_viz.html` (91KB interactive visualization)
+- Shows 500 relationships from the Neo4j graph
+- Interactive HTML file can be opened in any browser
+- Helps visualize entity connections and relationships
+
+**Benefits:**
+- Enables visual exploration of the knowledge graph
+- Useful for debugging relationship structures
+- Helps understand entity connectivity patterns
+- Demonstrates proper resource management
+
+---

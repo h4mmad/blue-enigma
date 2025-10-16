@@ -30,13 +30,14 @@ def build_pyvis(rows, output_html="neo4j_viz.html"):
         net.add_node(b_id, label=f"{b_name}\n({','.join(b_labels)})", title=f"{b_name}")
         net.add_edge(a_id, b_id, title=rel)
 
-    net.show(output_html, notebook=False)
+    net.show(output_html)  # Removed notebook parameter - not supported in newer pyvis versions
     print(f"Saved visualization to {output_html}")
 
 def main():
     with driver.session() as session:
         rows = session.execute_read(fetch_subgraph, limit=NEO_BATCH)
     build_pyvis(rows)
+    driver.close()  # Properly close the driver to avoid resource warnings
 
 if __name__ == "__main__":
     main()
