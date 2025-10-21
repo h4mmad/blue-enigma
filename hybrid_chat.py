@@ -71,7 +71,7 @@ def fetch_graph_context(node_ids: List[str], neighborhood_depth=1):
                 "ORDER BY m.id "  # Added ORDER BY for deterministic results
                 "LIMIT 10"
             )
-            # added Order by for more deterministic responses
+            
             recs = session.run(q, nid=nid)
             for r in recs:
                 facts.append({
@@ -89,7 +89,7 @@ def fetch_graph_context(node_ids: List[str], neighborhood_depth=1):
 def build_prompt(user_query, pinecone_matches, graph_facts):
     """Build a chat prompt combining vector DB matches and graph facts."""
     system = (
-        "You are a helpful travel assistant. Use the provided semantic search results "
+        "You are a helpful travel assistant that is consistent with your answers. Use the provided semantic search results "
         "and graph facts to answer the user's query briefly and concisely. "
         "Cite node ids when referencing specific places or attractions."
     )
@@ -125,7 +125,7 @@ def call_chat(prompt_messages):
         messages=prompt_messages,
         max_tokens=600,
         temperature=0.0,  # Changed temperature to 0 for more deterministic response
-        seed=42  # Added seed for maximum determinism
+        seed=42  # Added seed for more determinism
     )
     return resp.choices[0].message.content
 

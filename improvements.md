@@ -5,12 +5,13 @@
 **Problem:** Original project had hardcoded API keys in `config.py`, creating a security risk.
 
 **Solution:**
+
 - Created `.env` file to store sensitive credentials
 - Created `.gitignore` file to prevent API keys from being exposed in version control
 - Refactored `config.py` to load environment variables using `python-dotenv`
 - Added validation to ensure required API keys are set
 
-**Benefits:** Enhanced security, follows industry best practices, prevents accidental credential exposure.
+C Enhanced security, and prevents accidental credential exposure.
 
 ---
 
@@ -19,7 +20,9 @@
 **Problem:** Outdated Python packages causing import errors and compatibility issues.
 
 **Issues Fixed:**
+
 1. **Pinecone Package Migration**
+
    - Old: `pinecone-client==2.2.0` (deprecated)
    - New: `pinecone==7.3.0` (official package)
    - Error: `ImportError: cannot import name 'Pinecone' from 'pinecone'`
@@ -30,20 +33,20 @@
    - Error: `TypeError: Client.__init__() got an unexpected keyword argument 'proxies'`
 
 **Solution:**
+
 - Uninstalled deprecated `pinecone-client` package
 - Installed official `pinecone` package (v7.3.0)
 - Upgraded `openai` to v2.3.0 for compatibility with httpx
 
 **Commands Used:**
+
 ```bash
 pip uninstall -y pinecone-client
 pip install pinecone
 pip install --upgrade openai
 ```
 
-**Benefits:** Resolved import errors, improved compatibility, access to latest features and security updates.
-
----
+**Benefits:** Resolved import errors and improved compatibility.
 
 ## 3. Pinecone Configuration Updates
 
@@ -52,6 +55,7 @@ pip install --upgrade openai
 **Error:** `Resource cloud: gcp region: us-east1-gcp not found`
 
 **Solution:**
+
 - Changed from GCP region to AWS region for free tier compatibility
 - Updated [pinecone_upload.py:34-36](pinecone_upload.py#L34-L36):
   - Old: `cloud="gcp", region="us-east1-gcp"`
@@ -66,6 +70,7 @@ pip install --upgrade openai
 **Problem:** Environment variables not loading from `.env.local` file.
 
 **Solution:**
+
 - Updated [config.py:9](config.py#L9) to explicitly load `.env.local`:
   - Old: `load_dotenv()`
   - New: `load_dotenv(".env.local")`
@@ -79,6 +84,7 @@ pip install --upgrade openai
 **Problem:** Neo4j database was not installed or running, causing connection errors when executing `hybrid_chat.py`.
 
 **Error:**
+
 ```
 neo4j.exceptions.ServiceUnavailable: Couldn't connect to localhost:7687
 ConnectionRefusedError: [Errno 111] Connection refused
@@ -89,6 +95,7 @@ ConnectionRefusedError: [Errno 111] Connection refused
 ### Installation Method: Docker (Recommended)
 
 1. **Installed Neo4j using Docker container:**
+
    ```bash
    docker run -d \
      --name neo4j-travel \
@@ -98,10 +105,12 @@ ConnectionRefusedError: [Errno 111] Connection refused
    ```
 
 2. **Port Configuration:**
-   - Port `7687`: Bolt protocol (binary protocol for database connections)
+
+   - Port `7687`: Bolt protocol (database connections)
    - Port `7474`: HTTP/Browser interface for Neo4j Browser UI
 
 3. **Authentication Configuration:**
+
    - Set `NEO4J_AUTH=none` to disable authentication for development
    - Updated [.env.local](config.py#L12-L14) with:
      ```
@@ -115,20 +124,8 @@ ConnectionRefusedError: [Errno 111] Connection refused
    - Successfully created 360 nodes (10 Cities, 100 Hotels, 100 Activities, 150 Attractions)
    - Successfully created 360 relationships connecting entities
 
-**What is Bolt Protocol?**
-- Neo4j's custom binary protocol for efficient client-server communication
-- Uses port 7687 by default
-- More efficient than HTTP/REST for database operations
-- Supports persistent connections and request pipelining
-
-**Benefits:**
-- Fast installation and setup using Docker
-- No complex system configuration required
-- Easy to start/stop/restart with Docker commands
-- Isolated environment prevents conflicts with other services
-- Graph database enables rich contextual queries for the hybrid chat system
-
 **Useful Docker Commands:**
+
 ```bash
 # Stop Neo4j
 docker stop neo4j-travel
@@ -153,6 +150,7 @@ docker stop neo4j-travel && docker rm neo4j-travel
 **Problem:** System was generating different responses for identical queries, causing inconsistent recommendations and poor user experience.
 
 **Issue Details:**
+
 - Same user query: "plan a romantic trip to Vietnam"
 - Response 1: Suggests "cozy hotel" and specific activities
 - Response 2: Suggests "go to a cafe" and different activities
@@ -165,6 +163,7 @@ docker stop neo4j-travel && docker rm neo4j-travel
 **Problem:** Neo4j queries without `ORDER BY` return results in arbitrary order.
 
 **Original Query** in [hybrid_chat.py:67-72](hybrid_chat.py#L67-L72):
+
 ```cypher
 MATCH (n:Entity {id:$nid})-[r]-(m:Entity)
 RETURN type(r) AS rel, labels(m) AS labels, m.id AS id,
@@ -173,6 +172,7 @@ LIMIT 10
 ```
 
 **Issue:** Without `ORDER BY`, Neo4j can return the same 10 relationships in different orders due to:
+
 - Internal storage ordering changes
 - Query planner optimization differences
 - Cache state variations
@@ -181,6 +181,7 @@ LIMIT 10
 **Impact:** Different graph facts in the prompt → Different AI responses
 
 **Solution:** Added `ORDER BY m.id` to ensure consistent ordering:
+
 ```cypher
 MATCH (n:Entity {id:$nid})-[r]-(m:Entity)
 RETURN type(r) AS rel, labels(m) AS labels, m.id AS id,
@@ -196,6 +197,7 @@ LIMIT 10
 **Original Setting:** `temperature=0.2` (allows creative variation)
 
 **Why This Was Problematic:**
+
 - Temperature controls randomness in word selection during generation
 - Even small values like 0.2 can cause different word choices for identical context
 - Not suitable for business applications requiring consistent recommendations
@@ -209,13 +211,15 @@ LIMIT 10
 | 1.0+ | High randomness | Brainstorming |
 
 **Solution:** Changed to `temperature=0.0` in [hybrid_chat.py:127](hybrid_chat.py#L127):
+
 ```python
 temperature=0.0  # Changed from 0.2 for deterministic responses
 ```
 
 **Benefits:**
-- Same context always produces same response
-- Consistent recommendations for same queries
+
+- Same context always produces similar response
+- Consistent recommendations for similar queries
 - Reliable metrics for A/B testing
 - Builds user trust through predictability
 
@@ -224,54 +228,18 @@ temperature=0.0  # Changed from 0.2 for deterministic responses
 **Problem:** Even with `temperature=0.0`, minor variations can occur due to infrastructure differences.
 
 **Solution:** Added `seed=42` parameter in [hybrid_chat.py:128](hybrid_chat.py#L128):
+
 ```python
 seed=42  # Added seed for maximum determinism
 ```
 
 **What the Seed Does:**
+
 - Controls the random number generator used during text generation
 - Makes sampling more reproducible across API calls
 - Industry standard: Use consistent seed (42 is conventional) for deterministic behavior
 
 **Note:** OpenAI states that determinism is "not guaranteed" due to model updates and infrastructure changes, but adding a seed significantly improves consistency.
-
-### Results After All Changes
-
-**Test Query:** "plan a romantic trip to Vietnam"
-
-**Before Fixes:**
-```
-Run 1: "Visit cozy hotels in Hanoi, take boat tour (different node IDs)"
-Run 2: "Go to cafes in Ho Chi Minh, cooking class (different node IDs)"
-```
-❌ Completely different recommendations
-
-**After Fixes (ORDER BY + temperature=0.0 + seed=42):**
-```
-Run 1: "Visit Da Lat and Hoi An. Activities: bicycle tour (Activity 272),
-        boat ride (Activity 274), cooking class (Activity 280)"
-Run 2: "Visit Da Lat and Hoi An. Activities: bicycle tour (Activity 272),
-        boat ride (Activity 274), cooking class (Activity 280)"
-```
-✅ 99% identical responses (same cities, activities, node IDs)
-
-**Remaining Variations (~1%):**
-Minor word choice differences like "ancient streets" vs "ancient town" are unavoidable with LLMs but don't impact business value.
-
-**Benefits:**
-- Consistent recommendations across identical queries
-- Reliable metrics for conversion tracking and optimization
-- Builds user trust through predictable, quality responses
-- Essential for production travel recommendation systems
-- Enables accurate A/B testing and performance measurement
-
-**Business Impact:**
-For a travel company, this level of determinism ensures:
-1. Same query returns same destination/activity recommendations
-2. Users comparing notes see consistent suggestions
-3. Customer support can reference standard itineraries
-4. Marketing can optimize based on reliable data
-5. Quality assurance can verify recommendation quality
 
 ---
 
@@ -280,6 +248,7 @@ For a travel company, this level of determinism ensures:
 **Problem:** `visualize_graph.py` script failed with `TypeError` when attempting to generate graph visualization.
 
 **Error:**
+
 ```
 TypeError: Network.show() got an unexpected keyword argument 'notebook'
 ```
@@ -288,31 +257,26 @@ TypeError: Network.show() got an unexpected keyword argument 'notebook'
 The pyvis library API changed in newer versions. The `show()` method no longer accepts the `notebook` parameter - it's only specified during `Network()` initialization.
 
 **Original Code** in [visualize_graph.py:33](visualize_graph.py#L33):
+
 ```python
 net.show(output_html, notebook=False)  # notebook parameter not supported here
 ```
 
 **Solution:**
+
 ```python
 net.show(output_html)  # Removed notebook parameter
 ```
 
 **Additional Fix:**
 Added proper driver cleanup to prevent resource warning:
+
 ```python
 driver.close()  # Properly close the driver to avoid resource warnings
 ```
 
 **Result:**
-- Successfully generates `neo4j_viz.html` (91KB interactive visualization)
-- Shows 500 relationships from the Neo4j graph
-- Interactive HTML file can be opened in any browser
-- Helps visualize entity connections and relationships
 
-**Benefits:**
-- Enables visual exploration of the knowledge graph
-- Useful for debugging relationship structures
-- Helps understand entity connectivity patterns
-- Demonstrates proper resource management
+- Successfully generates `neo4j_viz.html`
 
 ---
