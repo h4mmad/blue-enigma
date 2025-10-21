@@ -85,8 +85,19 @@ def embed_text(text: str) -> List[float]:
 
     return embedding
 
-def pinecone_query(query_text: str, top_k=TOP_K):
-    """Query Pinecone index using embedding."""
+def pinecone_query(query_text: str, top_k=TOP_K, min_score=0.3):  # Threshold lowered from 0.5 to 0.3 after testing
+    """
+    Query Pinecone index using embedding.
+    Filters results by minimum similarity score threshold.
+
+    Args:
+        query_text: The search query
+        top_k: Number of results to retrieve from Pinecone
+        min_score: Minimum similarity score threshold (default: 0.5)
+
+    Returns:
+        List of matches that meet the threshold, or empty list if none qualify
+    """
     vec = embed_text(query_text)
     res = index.query(
         vector=vec,
@@ -94,9 +105,18 @@ def pinecone_query(query_text: str, top_k=TOP_K):
         include_metadata=True,
         include_values=False
     )
-    print("DEBUG: Pinecone top 5 results:")
-    print(len(res["matches"]))
-    return res["matches"]
+
+    # Filter by threshold
+    all_matches = res["matches"]
+    strong_matches = [m for m in all_matches if m.get("score", 0) >= min_score]
+
+    print(f"DEBUG: Pinecone returned {len(all_matches)} results, {len(strong_matches)} above threshold {min_score}")
+    if strong_matches:
+        print(f"  Top score: {strong_matches[0].get('score', 0):.3f}")
+    elif all_matches:
+        print(f"  Highest score (below threshold): {all_matches[0].get('score', 0):.3f}")
+
+    return strong_matches
 
 def fetch_graph_context(node_ids: List[str], neighborhood_depth=1):
     """Fetch neighboring nodes from Neo4j."""
@@ -128,7 +148,7 @@ def fetch_graph_context(node_ids: List[str], neighborhood_depth=1):
 def build_prompt(user_query, pinecone_matches, graph_facts):
     """Build a chat prompt combining vector DB matches and graph facts."""
     system = (
-        "You are a helpful travel assistant that is consistent with your answers. Use the provided semantic search results "
+        "You are a helpful travel assistant specializing in Vietnam travel. Use the provided semantic search results "
         "and graph facts to answer the user's query briefly and concisely. "
         "Cite node ids when referencing specific places or attractions."
     )
@@ -210,6 +230,19 @@ def interactive_chat():
 
         # Process normal query
         matches = pinecone_query(query, top_k=TOP_K)
+
+        # Check if we have strong matches above threshold
+        if not matches:
+            print("\n=== Assistant Response ===")
+            print("I don't have specific information about that in my Vietnam travel database.")
+            print("\nYou could try:")
+            print("  - Rephrasing your question")
+            print("  - Asking about Vietnam destinations, cities, or attractions")
+            print("  - Asking about Vietnamese food, culture, or activities")
+            print("=== End ===\n")
+            continue
+
+        # Proceed with strong matches
         match_ids = [m["id"] for m in matches]
         graph_facts = fetch_graph_context(match_ids)
         prompt = build_prompt(query, matches, graph_facts)
