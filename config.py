@@ -22,6 +22,11 @@ PINECONE_ENV = os.getenv("PINECONE_ENV", "us-east1-gcp")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "vietnam-travel")
 PINECONE_VECTOR_DIM = int(os.getenv("PINECONE_VECTOR_DIM", "1536"))
 
+# Cache Configuration
+CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() == "true"
+CACHE_MAX_SIZE = int(os.getenv("CACHE_MAX_SIZE", "1000"))
+CACHE_STATS_LOGGING = os.getenv("CACHE_STATS_LOGGING", "true").lower() == "true"
+
 # Validation: Check that required API keys are set
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY not found in environment variables. Please set it in .env file.")

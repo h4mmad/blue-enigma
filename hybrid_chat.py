@@ -5,6 +5,8 @@ from openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
 from neo4j import GraphDatabase
 import config
+from embedding_cache import EmbeddingCache
+import atexit
 
 # -----------------------------
 # Config
@@ -38,13 +40,50 @@ driver = GraphDatabase.driver(
     config.NEO4J_URI, auth=(config.NEO4J_USER, config.NEO4J_PASSWORD)
 )
 
+# Initialize embedding cache
+embedding_cache = None
+if config.CACHE_ENABLED:
+    embedding_cache = EmbeddingCache(
+        max_size=config.CACHE_MAX_SIZE,
+        model_name=EMBED_MODEL
+    )
+    print(f"✓ Embedding cache enabled (max size: {config.CACHE_MAX_SIZE})")
+
+    # Register cleanup handler to print stats on exit
+    def print_cache_stats_on_exit():
+        if embedding_cache and config.CACHE_STATS_LOGGING:
+            embedding_cache.print_stats()
+
+    atexit.register(print_cache_stats_on_exit)
+else:
+    print("✗ Embedding cache disabled")
+
 # -----------------------------
 # Helper functions
 # -----------------------------
 def embed_text(text: str) -> List[float]:
-    """Get embedding for a text string."""
+    """
+    Get embedding for a text string.
+    Uses cache if enabled to avoid redundant API calls.
+    """
+    # Try to get from cache first
+    if embedding_cache:
+        cached_embedding = embedding_cache.get(text)
+        if cached_embedding is not None:
+            print("✓ Found in cache - using cached embedding")
+            return cached_embedding
+
+    # Cache miss or cache disabled - call OpenAI API
+    print("⟳ Cache miss - calling OpenAI API for embedding...")
     resp = client.embeddings.create(model=EMBED_MODEL, input=[text])
-    return resp.data[0].embedding
+    embedding = resp.data[0].embedding
+
+    # Store in cache for future use
+    if embedding_cache:
+        embedding_cache.set(text, embedding)
+        print("✓ Stored embedding in cache")
+
+    return embedding
 
 def pinecone_query(query_text: str, top_k=TOP_K):
     """Query Pinecone index using embedding."""
@@ -133,12 +172,43 @@ def call_chat(prompt_messages):
 # Interactive chat
 # -----------------------------
 def interactive_chat():
-    print("Hybrid travel assistant. Type 'exit' to quit.")
+    global embedding_cache  # Declare global to access the module-level variable
+
+    print("="*60)
+    print("HYBRID TRAVEL ASSISTANT")
+    print("="*60)
+    print("Commands:")
+    print("  - Type your travel question to get an answer")
+    print("  - Type '/stats' to view cache statistics")
+    print("  - Type '/clear' to clear the cache")
+    print("  - Type 'exit' or 'quit' to quit")
+    print("="*60)
+
     while True:
         query = input("\nEnter your travel question: ").strip()
-        if not query or query.lower() in ("exit","quit"):
+        if not query:
+            continue
+
+        if query.lower() in ("exit", "quit"):
             break
 
+        # Special commands
+        if query.lower() == "/stats":
+            if embedding_cache:
+                embedding_cache.print_stats()
+            else:
+                print("Cache is disabled.")
+            continue
+
+        if query.lower() == "/clear":
+            if embedding_cache:
+                embedding_cache.clear()
+                print("✓ Cache cleared successfully.")
+            else:
+                print("Cache is disabled.")
+            continue
+
+        # Process normal query
         matches = pinecone_query(query, top_k=TOP_K)
         match_ids = [m["id"] for m in matches]
         graph_facts = fetch_graph_context(match_ids)
