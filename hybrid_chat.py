@@ -5,7 +5,7 @@ from openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
 from neo4j import GraphDatabase
 import config
-from embedding_cache import EmbeddingCache
+from redis_cache import Cache as RedisCache
 import atexit
 
 # -----------------------------
@@ -40,21 +40,29 @@ driver = GraphDatabase.driver(
     config.NEO4J_URI, auth=(config.NEO4J_USER, config.NEO4J_PASSWORD)
 )
 
-# Initialize embedding cache
+# Initialize embedding cache (Redis-based)
 embedding_cache = None
 if config.CACHE_ENABLED:
-    embedding_cache = EmbeddingCache(
-        max_size=config.CACHE_MAX_SIZE,
-        model_name=EMBED_MODEL
-    )
-    print(f"✓ Embedding cache enabled (max size: {config.CACHE_MAX_SIZE})")
+    try:
+        embedding_cache = RedisCache(
+            host=config.REDIS_HOST,
+            port=config.REDIS_PORT,
+            db=config.REDIS_DB,
+            default_ttl=config.REDIS_CACHE_TTL,
+            key_prefix="embedding"
+        )
+        print(f"✓ Redis embedding cache enabled at {config.REDIS_HOST}:{config.REDIS_PORT}")
 
-    # Register cleanup handler to print stats on exit
-    def print_cache_stats_on_exit():
-        if embedding_cache and config.CACHE_STATS_LOGGING:
-            embedding_cache.print_stats()
+        # Register cleanup handler to print stats on exit
+        def print_cache_stats_on_exit():
+            if embedding_cache and config.CACHE_STATS_LOGGING:
+                embedding_cache.print_stats()
 
-    atexit.register(print_cache_stats_on_exit)
+        atexit.register(print_cache_stats_on_exit)
+    except Exception as e:
+        print(f"✗ Failed to initialize Redis cache: {e}")
+        print("  Please ensure Redis is running: docker start redis")
+        embedding_cache = None
 else:
     print("✗ Embedding cache disabled")
 
