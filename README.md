@@ -1,3 +1,7 @@
+## Architecture overview
+
+<img width="937" height="736" alt="image" src="https://github.com/user-attachments/assets/39622c6d-5e55-4e31-8f27-5612d84d90db" />
+
 ## System Flowchart with Semantic Cache
 
 ```mermaid
