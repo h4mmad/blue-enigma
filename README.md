@@ -43,13 +43,13 @@ flowchart TD
 
     S --> G
 
-    style A fill:#e1f5ff
-    style F fill:#90EE90
-    style K fill:#ffe1e1
-    style G fill:#e1ffe1
+    style A fill:#e1f5ff,color:#000
+    style F fill:#90EE90,color:#000
+    style K fill:#ffe1e1,color:#000
+    style G fill:#e1ffe1,color:#000
     style END fill:#f0f0f0
-    style B fill:#FFE4B5
-    style E fill:#FFE4B5
+    style B fill:#FFE4B5,color:#000
+    style E fill:#FFE4B5,color:#000
 ```
 
 ### Cache Strategy
