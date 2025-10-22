@@ -281,6 +281,128 @@ driver.close()  # Properly close the driver to avoid resource warnings
 
 ---
 
----
+## 8. Semantic Cache Implementation with RedisVL
 
-- the same text can generate different embeddings
+**Problem:** Original system used in-memory caching for embeddings only, which:
+- Lost cache data on application restart (not persistent)
+- Required full pipeline execution (Pinecone + Neo4j + GPT) even for similar queries
+- Only saved embedding API calls, not the expensive LLM calls
+
+**Solution:** Implemented semantic caching using RedisVL to cache complete LLM responses based on query similarity.
+
+### Architecture Changes
+
+**Before (In-Memory Embedding Cache):**
+```
+User Query → Generate Embedding → Check Cache (exact match)
+  ├─ Hit: Return embedding
+  └─ Miss: Call OpenAI API → Store embedding
+→ Query Pinecone → Query Neo4j → Call GPT-4o-mini → Return response
+```
+
+**After (Semantic Response Cache):**
+```
+User Query → Generate Embedding → Check Semantic Cache (similarity search)
+  ├─ Hit: Return cached LLM response (SKIP EVERYTHING!)
+  └─ Miss: Query Pinecone → Query Neo4j → Call GPT-4o-mini
+          → Cache response with embedding → Return response
+```
+
+### Implementation Details
+
+**Files Created:**
+- [semantic_cache.py](semantic_cache.py) - RedisVL-based semantic cache wrapper
+- [test_semantic_cache.py](test_semantic_cache.py) - Test suite for cache functionality
+
+**Files Modified:**
+- [config.py](config.py#L40-L45) - Added semantic cache configuration
+- [hybrid_chat.py](hybrid_chat.py#L44-L68) - Integrated semantic cache into query flow
+
+**Key Features:**
+
+1. **Semantic Similarity Matching**
+   - Uses cosine distance (threshold: 0.1) to match similar queries
+   - Example: "Best hotels in Hanoi?" and "Good hotels in Hanoi?" hit the same cache
+   - Not limited to exact text matching like traditional caches
+
+2. **Single Embedding API Call Optimization**
+   ```python
+   # Generate embedding once
+   response, embedding = semantic_cache.check(query)
+
+   if response:  # Cache hit
+       return response  # Done!
+
+   # Cache miss - reuse embedding for:
+   # 1. Pinecone query
+   # 2. Cache storage (no regeneration!)
+   ```
+
+3. **Complete Pipeline Savings**
+   - Cache hit skips: Pinecone query + Neo4j query + GPT-4o-mini call
+   - Estimated savings per cache hit: ~$0.00025 + latency reduction
+
+4. **Persistent Storage**
+   - Cache survives application restarts (Redis-backed)
+   - Supports optional TTL for automatic expiration
+
+### Configuration
+
+**Environment Variables:**
+```bash
+SEMANTIC_CACHE_ENABLED=true
+SEMANTIC_CACHE_THRESHOLD=0.1    # Cosine distance (0.0-1.0, lower = stricter)
+SEMANTIC_CACHE_TTL=              # Optional: seconds until expiration
+```
+
+**Distance Threshold Explained:**
+- `0.0` = Identical vectors only
+- `0.1` = Very similar queries (90%+ similarity) ← Current setting
+- `0.2` = Moderate similarity
+- `1.0` = Any query matches
+
+### Technical Details
+
+**Vector Similarity Metric:**
+- RedisVL uses **cosine distance** for semantic search
+- Same metric as Pinecone (consistent across stack)
+- Formula: `cosine_distance = 1 - cosine_similarity`
+
+**Cache Strategy:**
+- Caches both successful responses AND fallback messages
+- Fallback caching prevents repeated failed queries to Pinecone/Neo4j
+- Metadata stored: model name, match count, graph facts count
+
+### Performance Metrics
+
+**API Calls per Request:**
+
+| Scenario | Before | After | Savings |
+|----------|--------|-------|---------|
+| Cache Hit | N/A | 1 embedding | Saved: Pinecone + Neo4j + GPT |
+| Cache Miss | 1 embedding + 1 LLM | 1 embedding + 1 LLM | 0% (first time) |
+
+**Test Results:**
+```
+Query 1: "Best hotels in Hanoi?"     → MISS (first time, full pipeline)
+Query 2: "Best hotels in Hanoi?"     → HIT  (distance: 0.0000001)
+Query 3: "Good hotels in Hanoi?"     → HIT  (distance: 0.079)
+Hit Rate: 66.7%
+```
+
+### Benefits
+
+✅ **Cost Reduction:** Saves GPT-4o-mini calls (~60-70% of total API cost per query)
+✅ **Latency Improvement:** Cache hits return in ~100ms vs ~2-3s for full pipeline
+✅ **Scalability:** Redis can handle millions of cached responses
+✅ **Persistent:** Cache survives restarts, shared across instances
+✅ **Semantic Intelligence:** Similar questions get cached responses
+
+### Code References
+
+- Semantic cache initialization: [hybrid_chat.py:44-68](hybrid_chat.py#L44-L68)
+- Cache check logic: [hybrid_chat.py:227-243](hybrid_chat.py#L227-L243)
+- Cache storage: [hybrid_chat.py:303-311](hybrid_chat.py#L303-L311)
+- RedisVL wrapper: [semantic_cache.py:87-188](semantic_cache.py#L87-L188)
+
+---
