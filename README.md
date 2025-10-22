@@ -1,6 +1,7 @@
 ## Instructions to run the hybrid chat
 
 Run redis docker:
+
 ```bash
 docker run -d --name redis -p 6379:6379 -p 8001:8001 redis/redis-stack:latest
 ```
@@ -9,57 +10,59 @@ docker run -d --name redis -p 6379:6379 -p 8001:8001 redis/redis-stack:latest
 
 ```mermaid
 flowchart TD
-    A[User Query: Best hotels in Hanoi?] --> B{Check RedisVL Semantic Cache}
+    A[User Query: Best hotels in Hanoi?] --> B[Call OpenAI Embeddings API]
 
-    B -->|Generate Embedding| C[Call OpenAI Embeddings API]
-    C --> D[text-embedding-3-small returns 1536-dim vector]
+    B --> C[text-embedding-3-small<br/>Returns 1536-dim vector]
 
-    D --> E{Search Cache by Vector Similarity<br/>Cosine Distance Threshold: 0.1}
+    C --> D{Check RedisVL Semantic Cache<br/>using the embedding vector}
 
-    E -->|Cache HIT<br/>Similar query found| F[Return Cached LLM Response]
-    F --> G[Display Response to User]
-    G --> END[End]
+    D -->|Cache HIT<br/>Cosine Distance < 0.1| E[Return Cached LLM Response]
+    E --> F[Display Response to User]
+    F --> END[End]
 
-    E -->|Cache MISS<br/>No similar query| H[Query Pinecone Vector DB<br/>Reuse embedding from step D]
+    D -->|Cache MISS<br/>No similar query| G[Query Pinecone Vector DB<br/>Using same embedding vector]
 
-    H --> I[Pinecone returns Top K=5<br/>with Cosine Similarity Scores]
+    G --> H[Pinecone returns Top K=5<br/>with Cosine Similarity Scores]
 
-    I --> J{Filter: Scores >= 0.3?}
+    H --> I{Filter: Scores >= 0.3?}
 
-    J -->|All Below 0.3| K[Fallback Response:<br/>No specific information found]
-    K --> L[Cache Fallback Response<br/>with embedding]
-    L --> G
+    I -->|All Below 0.3| J[Fallback Response:<br/>No specific information found]
+    J --> K[Cache Fallback in RedisVL<br/>Store with same embedding vector]
+    K --> F
 
-    J -->|At Least One >= 0.3| M[Extract Node IDs from Matches]
+    I -->|At Least One >= 0.3| L[Extract Node IDs from Matches]
 
-    M --> N[Query Neo4j Graph DB]
-    N --> O[Fetch Relationships<br/>Up to 10 neighbors per node]
+    L --> M[Query Neo4j Graph DB]
+    M --> N[Fetch Relationships<br/>Up to 10 neighbors per node]
 
-    O --> P[Build Context Prompt:<br/>System + Pinecone Matches + Graph Facts]
+    N --> O[Build Context Prompt:<br/>System + Pinecone Matches + Graph Facts]
 
-    P --> Q[Send to OpenAI Chat API]
-    Q --> R[gpt-4o-mini generates response]
-    R --> S[Cache Response in RedisVL<br/>Reuse embedding from step D]
+    O --> P[Send to OpenAI Chat API]
+    P --> Q[gpt-4o-mini generates response]
+    Q --> R[Cache Response in RedisVL<br/>Store with same embedding vector]
 
-    S --> G
+    R --> F
 
     style A fill:#e1f5ff,color:#000
-    style F fill:#90EE90,color:#000
-    style K fill:#ffe1e1,color:#000
-    style G fill:#e1ffe1,color:#000
-    style END fill:#f0f0f0
-    style B fill:#FFE4B5,color:#000
-    style E fill:#FFE4B5,color:#000
+    style B fill:#FFA500,color:#000
+    style C fill:#FFA500,color:#000
+    style E fill:#90EE90,color:#000
+    style J fill:#ffe1e1,color:#000
+    style F fill:#e1ffe1,color:#000
+    style END fill:#f0f0f0,color:#000
+    style D fill:#FFE4B5,color:#000
 ```
 
 ### Cache Strategy
 
 **Semantic Cache (RedisVL)**:
+
 - Caches complete LLM responses based on semantic similarity
 - Uses OpenAI embeddings + cosine distance (threshold: 0.1)
 - Saves entire pipeline on cache hit: Embedding + Pinecone + Neo4j + GPT
 
 **Optimization**:
+
 - Single embedding API call per request (reused for cache + Pinecone)
 - Cache hit skips all downstream operations
 - Persistent across restarts
