@@ -1,45 +1,65 @@
 ## Instructions to run the hybrid chat
 
 Run redis docker:
+```bash
 docker run -d --name redis -p 6379:6379 -p 8001:8001 redis/redis-stack:latest
+```
 
-### System Flowchart
+### System Flowchart with Semantic Cache
 
 ```mermaid
 flowchart TD
-    A[User Input: Create romantic 4 day itinerary for Vietnam] --> B{Check In-Memory Cache}
+    A[User Query: Best hotels in Hanoi?] --> B{Check RedisVL Semantic Cache}
 
-    B -->|Cache Hit| C[Cache Returns Stored Vector]
-    B -->|Cache Miss| D[Call OpenAI Embeddings API]
+    B -->|Generate Embedding| C[Call OpenAI Embeddings API]
+    C --> D[text-embedding-3-small returns 1536-dim vector]
 
-    D --> E[text-embedding-3-small Model]
-    E --> F[Vector Returned 1536 dimensions]
-    F --> G[Store Vector in Cache]
-    G --> H[Vector Ready]
-    C --> H
+    D --> E{Search Cache by Vector Similarity<br/>Cosine Distance Threshold: 0.1}
 
-    H --> I[Query Pinecone Vector DB]
-    I --> J[Return Top K=5 Similar Vectors with Metadata]
+    E -->|Cache HIT<br/>Similar query found| F[Return Cached LLM Response]
+    F --> G[Display Response to User]
+    G --> END[End]
 
-    J --> K{Check Similarity Scores >= 0.3}
+    E -->|Cache MISS<br/>No similar query| H[Query Pinecone Vector DB<br/>Reuse embedding from step D]
 
-    K -->|All Below 0.3| L[Send Message: I don't have specific information<br/>about that in my Vietnam travel database]
-    L --> M[End]
+    H --> I[Pinecone returns Top K=5<br/>with Cosine Similarity Scores]
 
-    K -->|At Least One >= 0.3| N[Extract Node IDs from Filtered Matches]
+    I --> J{Filter: Scores >= 0.3?}
 
-    N --> O[Query Neo4j Graph DB with Node IDs]
-    O --> P[Neo4j Returns Relationship Facts<br/>up to 10 neighbors per node]
-    P --> Q[Build Prompt:<br/>System Prompt + Pinecone Matches + Graph Facts]
+    J -->|All Below 0.3| K[Fallback Response:<br/>No specific information found]
+    K --> L[Cache Fallback Response<br/>with embedding]
+    L --> G
 
-    Q --> R[Send to OpenAI Chat API]
-    R --> S[gpt-4o-mini Model]
-    S --> T[Get Response]
-    T --> U[Show Response to User]
-    U --> M
+    J -->|At Least One >= 0.3| M[Extract Node IDs from Matches]
+
+    M --> N[Query Neo4j Graph DB]
+    N --> O[Fetch Relationships<br/>Up to 10 neighbors per node]
+
+    O --> P[Build Context Prompt:<br/>System + Pinecone Matches + Graph Facts]
+
+    P --> Q[Send to OpenAI Chat API]
+    Q --> R[gpt-4o-mini generates response]
+    R --> S[Cache Response in RedisVL<br/>Reuse embedding from step D]
+
+    S --> G
 
     style A fill:#e1f5ff
-    style L fill:#ffe1e1
-    style U fill:#e1ffe1
-    style M fill:#f0f0f0
+    style F fill:#90EE90
+    style K fill:#ffe1e1
+    style G fill:#e1ffe1
+    style END fill:#f0f0f0
+    style B fill:#FFE4B5
+    style E fill:#FFE4B5
 ```
+
+### Cache Strategy
+
+**Semantic Cache (RedisVL)**:
+- Caches complete LLM responses based on semantic similarity
+- Uses OpenAI embeddings + cosine distance (threshold: 0.1)
+- Saves entire pipeline on cache hit: Embedding + Pinecone + Neo4j + GPT
+
+**Optimization**:
+- Single embedding API call per request (reused for cache + Pinecone)
+- Cache hit skips all downstream operations
+- Persistent across restarts

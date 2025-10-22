@@ -26,13 +26,23 @@ PINECONE_VECTOR_DIM = int(os.getenv("PINECONE_VECTOR_DIM", "1536"))
 CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() == "true"
 CACHE_STATS_LOGGING = os.getenv("CACHE_STATS_LOGGING", "true").lower() == "true"
 
-# Redis Configuration (for embedding cache)
+# Redis Configuration
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
-REDIS_CACHE_TTL = os.getenv("REDIS_CACHE_TTL")  # Optional TTL in seconds (None = no expiration)
-if REDIS_CACHE_TTL:
-    REDIS_CACHE_TTL = int(REDIS_CACHE_TTL)
+
+# Embedding Cache Configuration (exact match, for storing embeddings)
+EMBEDDING_CACHE_ENABLED = os.getenv("EMBEDDING_CACHE_ENABLED", "true").lower() == "true"
+EMBEDDING_CACHE_TTL = os.getenv("EMBEDDING_CACHE_TTL")  # Optional TTL in seconds
+if EMBEDDING_CACHE_TTL:
+    EMBEDDING_CACHE_TTL = int(EMBEDDING_CACHE_TTL)
+
+# Semantic Cache Configuration (similarity-based, for LLM responses)
+SEMANTIC_CACHE_ENABLED = os.getenv("SEMANTIC_CACHE_ENABLED", "true").lower() == "true"
+SEMANTIC_CACHE_THRESHOLD = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.1"))
+SEMANTIC_CACHE_TTL = os.getenv("SEMANTIC_CACHE_TTL")  # Optional TTL in seconds
+if SEMANTIC_CACHE_TTL:
+    SEMANTIC_CACHE_TTL = int(SEMANTIC_CACHE_TTL)
 
 # Validation: Check that required API keys are set
 if not OPENAI_API_KEY:

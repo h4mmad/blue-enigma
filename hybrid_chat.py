@@ -5,7 +5,7 @@ from openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
 from neo4j import GraphDatabase
 import config
-from redis_cache import Cache as RedisCache
+from semantic_cache import LLMSemanticCache
 import atexit
 
 # -----------------------------
@@ -40,31 +40,33 @@ driver = GraphDatabase.driver(
     config.NEO4J_URI, auth=(config.NEO4J_USER, config.NEO4J_PASSWORD)
 )
 
-# Initialize embedding cache (Redis-based)
-embedding_cache = None
-if config.CACHE_ENABLED:
+# Initialize semantic cache (RedisVL-based, similarity matching for LLM responses)
+semantic_cache = None
+if config.CACHE_ENABLED and config.SEMANTIC_CACHE_ENABLED:
     try:
-        embedding_cache = RedisCache(
-            host=config.REDIS_HOST,
-            port=config.REDIS_PORT,
-            db=config.REDIS_DB,
-            default_ttl=config.REDIS_CACHE_TTL,
-            key_prefix="embedding"
+        redis_url = f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}"
+        semantic_cache = LLMSemanticCache(
+            name="llm_response_cache",
+            redis_url=redis_url,
+            distance_threshold=config.SEMANTIC_CACHE_THRESHOLD,
+            default_ttl=config.SEMANTIC_CACHE_TTL,
+            openai_api_key=config.OPENAI_API_KEY,
+            embedding_model=EMBED_MODEL
         )
-        print(f"✓ Redis embedding cache enabled at {config.REDIS_HOST}:{config.REDIS_PORT}")
+        print(f"✓ Semantic cache enabled (threshold: {config.SEMANTIC_CACHE_THRESHOLD})")
 
         # Register cleanup handler to print stats on exit
         def print_cache_stats_on_exit():
-            if embedding_cache and config.CACHE_STATS_LOGGING:
-                embedding_cache.print_stats()
+            if semantic_cache and config.CACHE_STATS_LOGGING:
+                semantic_cache.print_stats()
 
         atexit.register(print_cache_stats_on_exit)
     except Exception as e:
-        print(f"✗ Failed to initialize Redis cache: {e}")
+        print(f"✗ Failed to initialize semantic cache: {e}")
         print("  Please ensure Redis is running: docker start redis")
-        embedding_cache = None
+        semantic_cache = None
 else:
-    print("✗ Embedding cache disabled")
+    print("✗ Semantic cache disabled")
 
 # -----------------------------
 # Helper functions
@@ -72,25 +74,10 @@ else:
 def embed_text(text: str) -> List[float]:
     """
     Get embedding for a text string.
-    Uses cache if enabled to avoid redundant API calls.
+    Always calls OpenAI API (semantic cache handles full response caching).
     """
-    # Try to get from cache first
-    if embedding_cache:
-        cached_embedding = embedding_cache.get(text)
-        if cached_embedding is not None:
-            print("✓ Found in cache - using cached embedding")
-            return cached_embedding
-
-    # Cache miss or cache disabled - call OpenAI API
-    print("⟳ Cache miss - calling OpenAI API for embedding...")
     resp = client.embeddings.create(model=EMBED_MODEL, input=[text])
     embedding = resp.data[0].embedding
-
-    # Store in cache for future use
-    if embedding_cache:
-        embedding_cache.set(text, embedding)
-        print("✓ Stored embedding in cache")
-
     return embedding
 
 def pinecone_query(query_text: str, top_k=TOP_K, min_score=0.3):  # Threshold lowered from 0.5 to 0.3 after testing
@@ -183,6 +170,7 @@ def build_prompt(user_query, pinecone_matches, graph_facts):
          "Graph facts (neighboring relations):\n" + "\n".join(graph_context[:20]) + "\n\n"
          "Based on the above, answer the user's question. If helpful, suggest 2–3 concrete itinerary steps or tips and mention node ids for references."}
     ]
+    print(prompt) # for debugging
     return prompt
 
 def call_chat(prompt_messages):
@@ -200,10 +188,10 @@ def call_chat(prompt_messages):
 # Interactive chat
 # -----------------------------
 def interactive_chat():
-    global embedding_cache  # Declare global to access the module-level variable
+    global semantic_cache  # Declare global to access the module-level variable
 
     print("="*60)
-    print("HYBRID TRAVEL ASSISTANT")
+    print("HYBRID TRAVEL ASSISTANT (with Semantic Cache)")
     print("="*60)
     print("Commands:")
     print("  - Type your travel question to get an answer")
@@ -222,42 +210,105 @@ def interactive_chat():
 
         # Special commands
         if query.lower() == "/stats":
-            if embedding_cache:
-                embedding_cache.print_stats()
+            if semantic_cache:
+                semantic_cache.print_stats()
             else:
                 print("Cache is disabled.")
             continue
 
         if query.lower() == "/clear":
-            if embedding_cache:
-                embedding_cache.clear()
-                print("✓ Cache cleared successfully.")
+            if semantic_cache:
+                semantic_cache.clear()
+                print("✓ Semantic cache cleared successfully.")
             else:
                 print("Cache is disabled.")
             continue
 
-        # Process normal query
-        matches = pinecone_query(query, top_k=TOP_K)
+        # Step 1: Check semantic cache for similar query
+        # This generates the embedding ONCE and returns it for reuse
+        cached_response = None
+        query_embedding = None
+
+        if semantic_cache:
+            print("⟳ Checking semantic cache and generating embedding...")
+            cached_response, query_embedding = semantic_cache.check(query)
+
+        if cached_response:
+            # Cache hit! Return cached response immediately
+            # Skipped: Pinecone query, Neo4j query, GPT call
+            # (embedding was already generated for cache check)
+            print("\n=== Assistant Answer (from cache) ===\n")
+            print(cached_response)
+            print("\n=== End ===\n")
+            continue
+
+        # Step 2: Cache miss - run full pipeline
+        print("⟳ Cache miss - running full pipeline...")
+
+        # Generate embedding if not already done by semantic cache
+        if query_embedding is None:
+            print("⟳ Generating embedding...")
+            query_embedding = embed_text(query)
+
+        # Query Pinecone using the embedding we already have
+        vec = query_embedding  # Reuse embedding from cache check!
+        res = index.query(
+            vector=vec,
+            top_k=TOP_K,
+            include_metadata=True,
+            include_values=False
+        )
+
+        # Filter by threshold
+        all_matches = res["matches"]
+        matches = [m for m in all_matches if m.get("score", 0) >= 0.3]
+
+        print(f"DEBUG: Pinecone returned {len(all_matches)} results, {len(matches)} above threshold 0.3")
+        if matches:
+            print(f"  Top score: {matches[0].get('score', 0):.3f}")
+        elif all_matches:
+            print(f"  Highest score (below threshold): {all_matches[0].get('score', 0):.3f}")
 
         # Check if we have strong matches above threshold
         if not matches:
+            fallback_response = (
+                "I don't have specific information about that in my Vietnam travel database.\n\n"
+                "You could try:\n"
+                "  - Rephrasing your question\n"
+                "  - Asking about Vietnam destinations, cities, or attractions\n"
+                "  - Asking about Vietnamese food, culture, or activities"
+            )
             print("\n=== Assistant Response ===")
-            print("I don't have specific information about that in my Vietnam travel database.")
-            print("\nYou could try:")
-            print("  - Rephrasing your question")
-            print("  - Asking about Vietnam destinations, cities, or attractions")
-            print("  - Asking about Vietnamese food, culture, or activities")
-            print("=== End ===\n")
+            print(fallback_response)
+            print("\n=== End ===\n")
+
+            # Cache the fallback response too
+            if semantic_cache:
+                semantic_cache.store(query, fallback_response, query_embedding)
             continue
 
-        # Proceed with strong matches
+        # Query Neo4j for graph context
         match_ids = [m["id"] for m in matches]
         graph_facts = fetch_graph_context(match_ids)
+
+        # Build prompt and call LLM
         prompt = build_prompt(query, matches, graph_facts)
         answer = call_chat(prompt)
+
+        # Display answer
         print("\n=== Assistant Answer ===\n")
         print(answer)
         print("\n=== End ===\n")
+
+        # Step 3: Store response in semantic cache
+        if semantic_cache:
+            metadata = {
+                'num_matches': len(matches),
+                'num_graph_facts': len(graph_facts),
+                'model': CHAT_MODEL
+            }
+            # Pass the embedding we already have to avoid regeneration!
+            semantic_cache.store(query, answer, query_embedding, metadata=metadata)
 
 if __name__ == "__main__":
     interactive_chat()
