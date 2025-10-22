@@ -1,6 +1,6 @@
 ## Architecture overview
 
-<img width="937" height="736" alt="image" src="https://github.com/user-attachments/assets/39622c6d-5e55-4e31-8f27-5612d84d90db" />
+<img width="937" height="736" alt="image" src="https://github.com/user-attachments/assets/c174385c-1e5d-491b-92ff-a1bcb29361a5" />
 
 ## System Flowchart with Semantic Cache
 
