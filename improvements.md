@@ -2,11 +2,10 @@
 
 ## Brief overview of improvements
 
-**Cost Reduction:** Saves GPT-4o-mini calls (~60-70% of total API cost per query).
-**Latency Improvement:** Cache hits return in ~100ms vs ~2-3s for full pipeline.
-**Scalability:** Redis can handle millions of cached responses.
-**Persistent:** Cache survives restarts, shared across instances and scalable.
-**Semantic Caching:** Similar queries get cached responses like 'create a romantic 4 day trip for Vietnam' & 'create a 4 day romantic trip for Vietnam'. This reduces latency and saves a lot of API calls.
+1. **Cost Reduction:** Saves GPT-4o-mini calls (~60-70% of total API cost per query).
+2. **Latency Improvement:** Cache hits return in ~100ms vs ~2-3s for full pipeline.
+3. **Scalability:** Redis can handle millions of cached responses.
+4. **Semantic Caching:** Similar queries get cached responses like 'create a romantic 4 day trip for Vietnam' & 'create a 4 day romantic trip for Vietnam'. This reduces latency and saves a lot of API calls.
 
 ## Insights
 
@@ -16,7 +15,7 @@ however this cannot be implemented in the current architecture because:
 1. **Sequential Dependency:** The Neo4j query requires node IDs from Pinecone results.
 2. **Query Design:** `fetch_graph_context()` uses `MATCH (n:Entity {id:$nid})` which explicitly
    searches by Pinecone-returned IDs.
-3. **Batch Query Optimization (Implemented):** While true parallelization isn't feasible, I implemented a batch query optimization that achieves similar performance gains. Instead of querying Neo4j sequentially for each node ID (N queries), we now use a single query with `WHERE n.id IN $node_ids` to fetch all graph relationships at once. This reduces Neo4j execution time by 60-80% (from ~250ms to ~50ms for 5 nodes) with zero accuracy loss, as the same data is retrieved in the same sequential pipeline.
+3. **Batch Query Optimization (Implemented):** I implemented a batch query optimization. Instead of querying Neo4j sequentially for each node ID (N queries), we now use a single query with `WHERE n.id IN $node_ids` to fetch all graph relationships at once. This reduces Neo4j execution time by 60-80% with zero accuracy loss, as the same data is retrieved in the same sequential pipeline.
 
 ## 1. Environment Variable Management & Security
 
@@ -192,11 +191,11 @@ recs = session.run(q, node_ids=node_ids)  # 1 database query
 
 **Benefits:**
 
-- ✅ **60-80% faster** Neo4j execution (250ms → 50ms)
-- ✅ **Zero accuracy loss** - identical data retrieved
-- ✅ **Maintains sequential pipeline** - Pinecone → Neo4j → LLM
-- ✅ **No changes to downstream code** - same return structure
-- ✅ **Reduced network overhead** - single database round-trip
+- **60-80% faster** Neo4j execution
+- **Zero accuracy loss** - identical data retrieved
+- **Maintains sequential pipeline** - Pinecone → Neo4j → LLM
+- **No changes to downstream code** - same return structure
+- **Reduced network overhead** - single database round-trip
 
 ---
 
