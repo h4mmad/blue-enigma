@@ -80,7 +80,7 @@ def embed_text(text: str) -> List[float]:
     embedding = resp.data[0].embedding
     return embedding
 
-def pinecone_query(query_text: str, top_k=TOP_K, min_score=0.3):  # Threshold lowered from 0.5 to 0.3 after testing
+def pinecone_query(query_text: str, top_k=TOP_K, min_score=0.5):  # Threshold set to 0.5 for better semantic matching
     """
     Query Pinecone index using embedding.
     Filters results by minimum similarity score threshold.
@@ -114,30 +114,36 @@ def pinecone_query(query_text: str, top_k=TOP_K, min_score=0.3):  # Threshold lo
     return strong_matches
 
 def fetch_graph_context(node_ids: List[str], neighborhood_depth=1):
-    """Fetch neighboring nodes from Neo4j."""
+    """Fetch neighboring nodes from Neo4j in ONE batch query."""
+    if not node_ids:
+        return []
+
     facts = []
     with driver.session() as session:
-        for nid in node_ids:
-            q = (
-                "MATCH (n:Entity {id:$nid})-[r]-(m:Entity) "
-                "RETURN type(r) AS rel, labels(m) AS labels, m.id AS id, "
-                "m.name AS name, m.type AS type, m.description AS description "
-                "ORDER BY m.id "  # Added ORDER BY for deterministic results
-                "LIMIT 10"
-            )
-            
-            recs = session.run(q, nid=nid)
-            for r in recs:
-                facts.append({
-                    "source": nid,
-                    "rel": r["rel"],
-                    "target_id": r["id"],
-                    "target_name": r["name"],
-                    "target_desc": (r["description"] or "")[:400],
-                    "labels": r["labels"]
-                })
-    print("DEBUG: Graph facts:")
-    print(len(facts))
+        # Single batch query - queries all nodes at once instead of looping
+        q = """
+        MATCH (n:Entity)-[r]-(m:Entity)
+        WHERE n.id IN $node_ids
+        RETURN n.id AS source, type(r) AS rel,
+               labels(m) AS labels, m.id AS id,
+               m.name AS name, m.type AS type,
+               m.description AS description
+        ORDER BY n.id, m.id
+        LIMIT 50
+        """
+
+        recs = session.run(q, node_ids=node_ids)
+        for r in recs:
+            facts.append({
+                "source": r["source"],
+                "rel": r["rel"],
+                "target_id": r["id"],
+                "target_name": r["name"],
+                "target_desc": (r["description"] or "")[:400],
+                "labels": r["labels"]
+            })
+
+    print(f"DEBUG: Graph facts: {len(facts)}")
     return facts
 
 def build_prompt(user_query, pinecone_matches, graph_facts):
@@ -261,9 +267,9 @@ def interactive_chat():
 
         # Filter by threshold
         all_matches = res["matches"]
-        matches = [m for m in all_matches if m.get("score", 0) >= 0.3]
+        matches = [m for m in all_matches if m.get("score", 0) >= 0.5]
 
-        print(f"DEBUG: Pinecone returned {len(all_matches)} results, {len(matches)} above threshold 0.3")
+        print(f"DEBUG: Pinecone returned {len(all_matches)} results, {len(matches)} above threshold 0.5")
         if matches:
             print(f"  Top score: {matches[0].get('score', 0):.3f}")
         elif all_matches:

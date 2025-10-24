@@ -21,13 +21,13 @@ Vietnam] --> B[Call OpenAI Embeddings API]
 
     G --> H[Pinecone returns Top K=5<br/>with Cosine Similarity Scores]
 
-    H --> I{Filter: Scores >= 0.3?}
+    H --> I{Filter: Scores >= 0.5?}
 
-    I -->|All Below 0.3| J[Fallback Response:<br/>No specific information found]
+    I -->|All Below 0.5| J[Fallback Response:<br/>No specific information found]
     J --> K[Cache Fallback in RedisVL<br/>Store with same embedding vector]
     K --> F
 
-    I -->|At Least One >= 0.3| L[Extract Node IDs from Matches]
+    I -->|At Least One >= 0.5| L[Extract Node IDs from Matches]
 
     L --> M[Query Neo4j Graph DB]
     M --> N[Fetch Relationships<br/>Up to 10 neighbors per node]
