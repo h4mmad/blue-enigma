@@ -29,7 +29,7 @@ Vietnam] --> B[Call OpenAI Embeddings API]
 
     I -->|At Least One >= 0.5| L[Extract Node IDs from Matches]
 
-    L --> M[Query Neo4j Graph DB]
+    L --> M[Batch Query Neo4j Graph DB]
     M --> N[Fetch Relationships<br/>Up to 10 neighbors per node]
 
     N --> O[Build Context Prompt:<br/>System + Pinecone Matches + Graph Facts]
